@@ -1,8 +1,16 @@
-{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE TupleSections #-}
+{-# OPTIONS_GHC -Wno-unused-top-binds #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Redundant multi-way if" #-}
+
 
 module Lib (lev, levCached, levCachedS) where
 
-import Control.Monad.State.Strict (State, evalState, get, gets, modify, runState)
+import Control.Monad.Fix (fix)
+import Control.Monad.State.Strict (State, gets, modify, runState)
+import Data.Array (Array, array)
+import qualified Data.Array as A
 import Data.Functor (($>))
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
@@ -84,6 +92,7 @@ cacheInS k f = do
     Just x' -> pure x'
 
 -- levCachedS :: Eq a => [a] -> [a] -> Int
+levCachedS :: Eq a => [a] -> [a] -> (Int, C)
 levCachedS xs ys = runState (cachingCS (0, xs) (0, ys)) mempty
 
 --- rows
@@ -103,3 +112,19 @@ run xs ys =
       fmap (fmap show) . cacheRows $
         snd $
           levCachedS xs ys
+
+levCachedArray :: Eq a => [a] -> [a] -> Int
+levCachedArray xs ys =
+  let bs@(bx, by) = (length xs, length ys)
+   in (A.! (0, 0)) $ fix $ \a ->
+        Data.Array.array ((0, 0), bs) $
+          [((x, by), bx - x) | x <- [0 .. bx]]
+            <> [((bx, y), by - y) | y <- [0 .. by]]
+            <> do
+              (nx, x) <- zip [0 ..] xs
+              (ny, y) <- zip [0 ..] ys
+              pure $
+                ((nx, ny),) $
+                  if
+                      | x == y -> a A.! (succ nx, succ ny)
+                      | otherwise -> 1 + minimum ((a A.!) <$> [(succ nx, succ ny), (nx, succ ny), (succ nx, ny)])
